@@ -1,0 +1,4 @@
+in 0.0.2.2018.08.29.01
+-fix an issue on a left-padding added into mission images
+-optimise performance that were really poor for big banners (containing more than 100 missions)
+-hide 'stop to debug' button

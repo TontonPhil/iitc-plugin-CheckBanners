@@ -3,7 +3,7 @@
 // @name           IITC plugin: Check Banners availability
 // @author         TontonPhil
 // @category       Layer
-// @version        0.0.2.2018.08.28.01
+// @version        0.0.2.2018.08.29.01
 // @namespace      https://github.com/TontonPhil/iitc-plugin-CheckBanners
 // @updateURL      https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.meta.js
 // @downloadURL    https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.js
@@ -74,6 +74,7 @@ window.plugin.CheckBanners.search = function (promptAction, debug_info) {
     //TODO split the prompt-action to be rid of multiple spaces that could be some some missions of the same banner
     searchParameters.searchRegExp = RegExp("([0-9]*)[^0-9]*([0-9]*)[^0-9]*"+promptAction+"[^0-9]*([0-9]*)[^0-9]*([0-9]*)","i");
     searchParameters.initialStateDebugInfo=debug_info; // store debug info, in case to share them later to investigate
+    searchParameters.filteredMissionList; // list of all the missions on which we load the details
     searchParameters.moveSpeed = 2500 ; // waiting time between 2 moves (for debug)
     searchParameters.defaultZoom = map.getZoom(); // hypothesis that the user has more or less put the zoom level to be accurrate
     searchParameters.lastSizeOfMissionList ; // used to store last size of mission list, if it is 25 then it was the top 25 missions and me may need to zoom.
@@ -196,11 +197,28 @@ window.plugin.CheckBanners.MissionInBannerNotfound = function(missionId) {
 
 }
 
+// display error window if we didn't find any mission for this banner (and leave researching)
+window.plugin.CheckBanners.ErrorNoMissionfound = function (searchParameters) {
+    // we didn't find any mission, warn user to position on a known mission of the banner
+    var html =  '<p><font color="red"><b>Cannot find any banner mission containing '+
+                searchParameters.promptAction +
+                ' in range </b></font></p>' +
+                '<p>Please try to position the intel on a place where a one of the mission of the banner can be seen (best is the last one, but ant mission of the banner can fit</p>'
+    dialog({
+        html: html,
+        id: 'plugin_searchBanner_error',
+        title: "search Banner-Can't find mission",
+        width: 'auto'
+    });
+    throw "no mission found";
+}
+
 // call back, on the return of the LoadMissionInBound (i.e. load the top missions that can be seen)
 window.plugin.CheckBanners.callBackMissionLoaded = function (searchParameters,missions) {
 
     var missionOrder = searchParameters.missionOrder;
     var missionOrderDimenssionned = (missionOrder.length != 0);
+    var missionListToLoad =[]; // list of tuple (mission, missionIndex from 0)
 
     searchParameters.lastSizeOfMissionList = missions.length;
     console.log(missions.length +" missions in bounds")
@@ -216,18 +234,8 @@ window.plugin.CheckBanners.callBackMissionLoaded = function (searchParameters,mi
     if (searchParameters.starting) {
         searchParameters.starting =false;
         if (filteredMissionsTuple.length == 0) {
-            // we didn't find any mission, warn user to position on a known mission of the banner
-            var html =  '<p><font color="red"><b>Cannot find any mission containing '+
-                        searchParameters.promptAction +
-                        ' in range </b></font></p>' +
-                        '<p>Please try to position the intel on a place where a one of the mission of the banner can be seen (best is the last one, but ant mission of the banner can fit</p>'
-            dialog({
-                html: html,
-                id: 'plugin_searchBanner_error',
-                title: "search Banner-Can't find mission",
-                width: 'auto'
-	        });
-	        throw "no mission found";
+            // no mission containing the name has been found - leave
+            window.plugin.CheckBanners.ErrorNoMissionfound(searchParameters);
         }
     }
 
@@ -264,8 +272,6 @@ window.plugin.CheckBanners.callBackMissionLoaded = function (searchParameters,mi
         // convert to Number
         missionPos = ((missionPos !== undefined && missionPos !='' ) ? Number(missionPos) : undefined);
         totalMissionCount = ((totalMissionCount !== undefined) ? Number(totalMissionCount) : undefined);
-//        var missionPos = searchParameters.positionMission.exec(mission.title); // apply the regExp to identify position of the mission in the banner
-
 
         // check if the size of the banner must be adapted
         var currentLength = missionOrder.length;
@@ -293,21 +299,43 @@ window.plugin.CheckBanners.callBackMissionLoaded = function (searchParameters,mi
 
         }
 
-        missionOrder[missionPos-1] = mission;
-        if (searchParameters.LowestMissionIndex !== undefined && missionPos-1 < searchParameters.LowestMissionIndex) {
-            searchParameters.LowestMissionIndex = missionPos-1;
+        if (missionPos !== undefined) {
+            // to avoid to include mission containing the same sentence, but not part of any banner
+            var missionIndex = missionPos-1
+            missionOrder[missionIndex] = mission;
+            // TODO check if LowestMissionIndex is really used
+            if (searchParameters.LowestMissionIndex !== undefined && missionPos-1 < searchParameters.LowestMissionIndex) {
+                searchParameters.LowestMissionIndex = missionPos-1;
+            }
+            // add this Tuple to the list of mission details to load
+            missionListToLoad.push([mission , missionIndex]);
         }
+
 //    console.log("mission " + missionPos )
     } )
 
     // from the identified mission, load the complete mission info in order to check if all portals are still existing
+    searchParameters.filteredMissionList = missionListToLoad;
 
-    // TODO optimise for big banners (more than 100 missions, as with the current algo we are loading each mission on each loop)
-    var firstAvailableIndex = window.plugin.CheckBanners.nextExistingMission(0,missionOrder)
-    window.plugin.missions.loadMission.bind(window.plugin.missions)(
-        missionOrder[firstAvailableIndex].guid,
-        window.plugin.CheckBanners.callBackMissionDetailLoaded.bind(this,searchParameters,firstAvailableIndex));
-    // aysnchronous procedure is now continued in callBackMissionDetailLoaded
+    var missiontupleToLoad = searchParameters.filteredMissionList.pop();
+    // check if at least a mission has been found
+    if (missiontupleToLoad === undefined) {
+        // no mission fitting the search has been found
+        if (missionOrderDimenssionned == false) {
+            // it is our 1st search and we didn't find any missing fitting in fact => give-up with dialog message
+            window.plugin.CheckBanners.ErrorNoMissionfound(searchParameters);
+        } else {
+            // we didn't find any mission this time, go to the next step of the searching algo
+            // TODO remove this crapy workaround and refine the callBackMissionDetailLoaded to extract the algorithm
+            missionIndex = window.plugin.CheckBanners.nextExistingMission(0,missionOrder);
+            window.plugin.CheckBanners.callBackMissionDetailLoaded(searchParameters,missionIndex,missionOrder[missionIndex]);
+        }
+    } else {
+        window.plugin.missions.loadMission.bind(window.plugin.missions)(
+            missiontupleToLoad[0].guid,
+            window.plugin.CheckBanners.callBackMissionDetailLoaded.bind(this,searchParameters,missiontupleToLoad[1]));
+        // aysnchronous procedure is now continued in callBackMissionDetailLoaded
+    }
 }
 
 // usefull only if all missions in the sequence have not been identified
@@ -328,6 +356,7 @@ window.plugin.CheckBanners.callBackMissionDetailLoaded = function (searchParamet
     // complete mission info loaded, so override the summary mission
     var missionOrder=searchParameters.missionOrder;
     var GoAndPerformFinalAnalysis = false;
+    var missiontupleToLoad;
 
     missionOrder[currentIndex] = mission;
 //    console.log("mission " + (currentIndex+1) + " fully loaded")
@@ -336,15 +365,14 @@ window.plugin.CheckBanners.callBackMissionDetailLoaded = function (searchParamet
     window.plugin.CheckBanners.updateMissionInBanner(mission,currentIndex+1);
 
     // check if missions remain to be loaded
-    try {
-        // if it is the last element loadable, an exception will be thrown
-        var nextIndex = window.plugin.CheckBanners.nextExistingMission(currentIndex+1,missionOrder);
-        // exception has not been raised, so load next item
-//        console.log('will load mission ' + (window.plugin.CheckBanners.nextExistingMission(nextIndex,missionOrder) +1) );
+    missiontupleToLoad = searchParameters.filteredMissionList.pop();
+
+    if (missiontupleToLoad !== undefined) {
+        // a mission remains to load, => go loop
         window.plugin.missions.loadMission.bind(window.plugin.missions)(
-                missionOrder[window.plugin.CheckBanners.nextExistingMission(nextIndex,missionOrder)].guid,
-                window.plugin.CheckBanners.callBackMissionDetailLoaded.bind(this,searchParameters,nextIndex));
-    } catch {
+                missiontupleToLoad[0].guid,
+                window.plugin.CheckBanners.callBackMissionDetailLoaded.bind(this,searchParameters,missiontupleToLoad[1]));
+    } else {
         // all the complete missions have been downloaded
         // analysis if missing entries, and try to locate them on the map
 
@@ -596,6 +624,8 @@ window.plugin.CheckBanners.PerformFinalCheck = function (searchParameters) {
 
     var missingMission = false;
     var missionOrder = searchParameters.missionOrder;
+    var missionsNotFoundHTML='';
+
     // TODO check if it is usefull to display the mission list
 //     window.plugin.missions.showMissionListDialog(missionOrder.filter((mission)=> mission !== undefined));
 
@@ -625,7 +655,7 @@ window.plugin.CheckBanners.PerformFinalCheck = function (searchParameters) {
         catch {
             console.log("mission n°" + (missionSeq[0]+1) + " not found");
             // put the not found icon
-            document.getElementById('detected_errors').innerHTML += 'mission n°' + (missionSeq[0]+1) + ' not found <br />'
+            missionsNotFoundHTML += 'mission n°' + (missionSeq[0]+1) + ' not found <br />'
             window.plugin.CheckBanners.MissionInBannerNotfound(missionSeq[0]+1);
             missingMission = true;
         }
@@ -651,8 +681,10 @@ window.plugin.CheckBanners.PerformFinalCheck = function (searchParameters) {
         })
     } else if (missingMission == false) {
         document.getElementById('detected_errors').innerHTML = ( 'none') ;
-
     }
+
+    // indicate also the mission that the algorithm didn't detected
+    document.getElementById('detected_errors').innerHTML += missionsNotFoundHTML;
 
 }
 
@@ -693,7 +725,7 @@ window.plugin.CheckBanners.questionwindow = function () {
             '<div style="text-align:center">' +
                 '<button id ="CheckBanners_SearchButton" type="button" onclick="window.plugin.CheckBanners.questionwindowGo()">Search</button> ' +
 //                '<button id ="CheckBanners_DebugButton" type="button" onclick="window.plugin.CheckBanners.questionwindowGoDebug()">Search Debug</button> '+
-                '<button id ="CheckBanners_StopButton" type="button">Stop to Debug</button> '+
+//                '<button id ="CheckBanners_StopButton" type="button">Stop to Debug</button> '+
             '</div>';
 
     // progress pane to show current mission we are looking for
@@ -760,7 +792,7 @@ window.plugin.CheckBanners.questionwindow = function () {
     // add banner window (each mission is 50 pixels wide) - the banner table is empty we don't know yet the amount of rows
     html +=
     '<div>' +
-        '<table>'+
+        '<table class="bannerTable">'+
 		'<tbody id="banner_images">' +
 		'</tbody>'
     	'</table>' +
@@ -880,10 +912,10 @@ var setup = function() {
     .html("#portalslist.mobile {\n  background: transparent;\n  border: 0 none !important;\n  height: 100% !important;\n  width: 100% !important;\n  left: 0 !important;\n  top: 0 !important;\n  position: absolute;\n  overflow: auto;\n}\n\n#portalslist table {\n  margin-top: 5px;\n  border-collapse: collapse;\n  empty-cells: show;\n  width: 100%;\n  clear: both;\n}\n\n#portalslist table td, #portalslist table th {\n  background-color: #1b415e;\n  border-bottom: 1px solid #0b314e;\n  color: white;\n  padding: 3px;\n}\n\n#portalslist table th {\n  text-align: center;\n}\n\n#portalslist table .alignR {\n  text-align: right;\n}\n\n#portalslist table.portals td {\n  white-space: nowrap;\n}\n\n#portalslist table th.sortable {\n  cursor: pointer;\n}\n\n#portalslist table .portalTitle {\n  min-width: 120px !important;\n  max-width: 240px !important;\n  overflow: hidden;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n}\n\n#portalslist .sorted {\n  color: #FFCE00;\n}\n\n#portalslist table.filter {\n  table-layout: fixed;\n  cursor: pointer;\n  border-collapse: separate;\n  border-spacing: 1px;\n}\n\n#portalslist table.filter th {\n  text-align: left;\n  padding-left: 0.3em;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n#portalslist table.filter td {\n  text-align: right;\n  padding-right: 0.3em;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n#portalslist .filterNeu {\n  background-color: #666;\n}\n\n#portalslist table tr.res td, #portalslist .filterRes {\n  background-color: #005684;\n}\n\n#portalslist table tr.enl td, #portalslist .filterEnl {\n  background-color: #017f01;\n}\n\n#portalslist table tr.none td {\n  background-color: #000;\n}\n\n#portalslist .disclaimer {\n  margin-top: 10px;\n  font-size: 10px;\n}\n\n#portalslist.mobile table.filter tr {\n  display: block;\n  text-align: center;\n}\n#portalslist.mobile table.filter th, #portalslist.mobile table.filter td {\n  display: inline-block;\n  width: 22%;\n}\n\n")
     .appendTo("head");
 
-  // styles to display the image banners rounded TODO include also overlay
+  // styles to display the image banners rounded
   $("<style>")
     .prop("type", "text/css")
-    .html(".roundedImage > img {\n    width:50px; \n    float:left; } \n .roundedImage {\n    position: relative; \n    overflow:hidden; \n    -webkit-border-radius:50px;\n    -moz-border-radius:50px;\n    border-radius:50px;\n    width:50px;}" )
+    .html(".bannerTable td + td {\n padding-left: 0px; \n} .roundedImage > img {\n    width:50px; \n    float:left; } \n .roundedImage {\n    position: relative; \n    overflow:hidden; \n    -webkit-border-radius:50px;\n    -moz-border-radius:50px;\n    border-radius:50px;\n    width:50px;}" )
     .appendTo("head");
   // style to display tooltip on missions
   $("<style>")
