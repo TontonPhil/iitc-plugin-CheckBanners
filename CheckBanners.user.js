@@ -3,7 +3,7 @@
 // @name           IITC plugin: Check Banners availability
 // @author         TontonPhil
 // @category       Layer
-// @version        0.0.2.2018.08.29.01
+// @version        0.0.3.2019.10.20.01
 // @namespace      https://github.com/TontonPhil/iitc-plugin-CheckBanners
 // @updateURL      https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.meta.js
 // @downloadURL    https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.js
@@ -58,6 +58,17 @@ window.plugin.firstRealPortal = function(waypoints) {
     })
 }
 
+window.plugin.CheckBanners.removeMissionsLayers = function (searchParameters) {
+
+    searchParameters.markers.forEach(function(marker) {
+        searchParameters.missionLayer.removeLayer(marker);
+    });
+    // empty the list
+    searchParameters.markers = []
+}
+
+window.plugin.CheckBanners.closeWindow = function() {} ; // will be defined below once searchParameters will be instantiated
+
 window.plugin.CheckBanners.search = function (promptAction, debug_info) {
 
 
@@ -70,7 +81,7 @@ window.plugin.CheckBanners.search = function (promptAction, debug_info) {
     // array of all the missions founds that fit,so far, the searched string
     searchParameters.missionOrder = new Array(0); // declaration now, but dimensionning of the table will be done later
     // following regexp allow to identify structures like "#4 banner" or "4/12 banner" or "banner #4" or "banner 4/12"
-    //TODO split the prompt-action to be rid of multiple spaces that could be some some missions of the same banner
+    //TODO split the prompt-action to be rid of multiple spaces that could be defined for some missions of the same banner
     searchParameters.searchRegExp = RegExp("([0-9]*)[^0-9]*([0-9]*)[^0-9]*"+promptAction+"[^0-9]*([0-9]*)[^0-9]*([0-9]*)","i");
     searchParameters.initialStateDebugInfo=debug_info; // store debug info, in case to share them later to investigate
     searchParameters.filteredMissionList; // list of all the missions on which we load the details
@@ -89,10 +100,30 @@ window.plugin.CheckBanners.search = function (promptAction, debug_info) {
     searchParameters.computeZoomDirection = true ; // set to true at each move of the screen, in order to recompute if zoom or dezoom have to be applied
     searchParameters.starting = true ; // used to identify the case were we cannot find any mission on the 1st search
 //    console.log(window.plugin.CheckBanners.displayBound(window.map.getBounds()));
+// create the function trigged to clean the drawn layers when closing the window.
+    $(window.DIALOGS['dialog-plugin_searchBanner']).data('closeCallback' ,window.plugin.CheckBanners.removeMissionsLayers.bind(this,searchParameters));
+
+// we create a new searchParameters object on each search. but we loose then the previous displayed layer (if displayed)
+// keep a global var that point to the previous searchParameter (in order to clean)
+    if (! (window.plugin.CheckBanners.PrevSearch === undefined)) {
+    // there was a previous search,
+    // clean the previous mission layer if displayed on the screen
+        if ( window.plugin.CheckBanners.PrevSearch.markers) {
+            // a layer way already displayed, => clean it
+            window.plugin.CheckBanners.removeMissionsLayers( window.plugin.CheckBanners.PrevSearch);
+        }
+    }
+    // so save current searchParameter to the history
+    window.plugin.CheckBanners.PrevSearch = searchParameters;
+
+    searchParameters.missionLayer = new L.LayerGroup() ; // layer to display the full mission drawing
+    window.addLayerGroup('Banner Path',searchParameters.missionLayer,true) ;
+    searchParameters.markers = [] ; // list of all the markers into the mission Layer (used for cleaning the screen).
 
     // clean the previous results (if there have been)
     document.getElementById('banner_images').innerHTML ="";
     document.getElementById('detected_errors').innerHTML = '' ;
+    document.getElementById("DrawBannerPath").disabled = true;
 
     // for debugging (when button is pressed, it will allow the trig a breakpoint in the main loop
     var debugButton = document.getElementById("CheckBanners_StopButton");
@@ -662,21 +693,31 @@ window.plugin.CheckBanners.PerformFinalCheck = function (searchParameters) {
     if (errorMissions.length > 0) {
 
         errorMissions.forEach(function(problem) {
-            var oneIssue = "mission n°" + problem.missionNum + " on portal n°" + problem.portalNbInMission ;
+            var oneIssue = "mission n°" + problem.missionNum + ", portal n°" + problem.portalNbInMission + " lost" ;
             console.log(oneIssue ) ;
-            document.getElementById('detected_errors').innerHTML += ( oneIssue +'<br />') ;
+            // insert text error, and bind to the mission window id user wants to see more
+            var spanId = 'spanError' + problem.missionNum + 'p' + problem.portalNbInMission;
+
+            //document.getElementById('detected_errors').innerHTML += ( '<span id = "'+ spanId +'">' + oneIssue +' </span> <br />') ;
+            document.getElementById('detected_errors').innerHTML += ( '<a id = "'+ spanId +'" onclick=window.plugin.CheckBanners.popMissionDialog("'+ problem.mission.guid + '") >' + oneIssue +' </a> <br />');
+            var linkMission = document.getElementById(spanId);
+ //           linkMission.onclick = function() {
+ //                   console.log("on-click")
+ //                   window.plugin.missions.showMissionDialog.bind(window.plugin.missions)(problem.mission);
+//            window.plugin.missions.showMissionDialog.bind(window.plugin.missions)(problem.mission);
+//                }
             var tooltip = document.getElementById('banner_mission_bubble_id'+problem.missionNum);
             tooltip.innerHTML += "\n issue on portal " + problem.portalNbInMission;
             // override mission image to show mission has an issue
-            var bannerImageDiv = document.getElementById('banner_image_div_id'+problem.missionNum);
-            var imgOverride=bannerImageDiv.appendChild(document.createElement('img'));
-            imgOverride.className='BannerOverlay';
-            imgOverride.src = notFoundImg;
+//            var bannerImageDiv = document.getElementById('banner_image_div_id'+problem.missionNum);
+//            var imgOverride=bannerImageDiv.appendChild(document.createElement('img'));
+//            imgOverride.className='BannerOverlay';
+//            imgOverride.src = notFoundImg;
             // put the link to the mission (as this image is overriding the previous one)
-            imgOverride.addEventListener('click', function(ev) {
-                console.log('view mission '+problem.missionNum);
-                window.plugin.missions.showMissionDialog.bind(window.plugin.missions)(problem.mission);
-            });
+//            imgOverride.addEventListener('click', function(ev) {
+//                console.log('view mission '+problem.missionNum);
+//                window.plugin.missions.showMissionDialog.bind(window.plugin.missions)(problem.mission);
+//            });
         })
     } else if (missingMission == false) {
         document.getElementById('detected_errors').innerHTML = ( 'none') ;
@@ -684,6 +725,81 @@ window.plugin.CheckBanners.PerformFinalCheck = function (searchParameters) {
 
     // indicate also the mission that the algorithm didn't detected
     document.getElementById('detected_errors').innerHTML += missionsNotFoundHTML;
+
+    // activate then the button allowing to display the full path of the banner
+    var drawButton = document.getElementById("DrawBannerPath");
+    drawButton.disabled = false;
+    drawButton.onclick = window.plugin.CheckBanners.drawMissions.bind(this,searchParameters);
+
+}
+
+
+window.plugin.CheckBanners.popMissionDialog = function(guid) {
+     mission = window.plugin.missions.getMissionCache.bind(window.plugin.missions)(guid,false);
+     window.plugin.missions.showMissionDialog.bind(window.plugin.missions)(mission);
+}
+
+window.plugin.CheckBanners.drawMissions = function(searchParameters) {
+    var missionOrder = searchParameters.missionOrder;
+    var markers = [];
+	var latlngs = [];
+
+    if (searchParameters.markers) {
+        // clean the previous display as we will remove it
+        window.plugin.CheckBanners.removeMissionsLayers(searchParameters);
+    }
+
+    missionOrder.forEach(function(mission) {
+        var firstPortal = true;
+        console.log('path for mission ' + mission.title)
+        // link all waypoints, but only circle the start of each mission
+		mission.waypoints.forEach(function(waypoint) {
+			if (!waypoint.portal) {
+			// TODO take in account also 'field trip' in order to display them also on the map - but the mission plugin does not seem to decode fully the field trip elements
+				return;
+			}
+
+			var ll = [waypoint.portal.latE6 / 1E6, waypoint.portal.lngE6 / 1E6];
+			latlngs.push(ll);
+
+            if (firstPortal ) { // only put a circle on the First portal of each mission
+//    			var radius = window.portals[waypoint.portal.guid] ? window.portals[waypoint.portal.guid].options.radius * 1.75 : 5;
+                var radius = 15
+//                console.log ('radius ' + radius + ' ' + portal.title);
+                var marker = L.circleMarker(ll, {
+                        radius: radius,
+                        weight: 3,
+                        opacity: 1,
+                        color: window.plugin.missions.MISSION_COLOR,
+                        fill: false,
+                        dashArray: null,
+                        clickable: false
+                    }
+                );
+                searchParameters.missionLayer.addLayer(marker);
+                markers.push(marker);
+                firstPortal = false
+			}
+		})
+	})
+
+    var line = L.geodesicPolyline(latlngs, {
+        color: window.plugin.missions.MISSION_COLOR,
+        opacity: 1,
+        weight: 4,
+        clickable: false,
+        dashArray: '1,5'
+    });
+    searchParameters.missionLayer.addLayer(line);
+    markers.push(line);
+
+    // highlight layers
+    searchParameters.missionLayer.eachLayer(function(layer) {
+        layer.bringToFront();
+    });
+
+    map.fitBounds(L.latLngBounds(latlngs),{maxZoom: 17});
+    searchParameters.markers = markers;
 
 }
 
@@ -776,14 +892,16 @@ window.plugin.CheckBanners.questionwindow = function () {
             '</table>' ;
 
     // add result text window - in order to display error
+    // add also a show banner path button (the corresponding action will be defined once the banner will be identified
     html +=
     '<div>' +
 		'<table>' +
     		'<tr>' +
-    		    "<b>detected errors :</b>" +
+    		    '<td>' + "<b>detected errors :</b>" + '</td>' +
+    		    '<td>' + '<button id ="DrawBannerPath" type="button" disabled>Draw Path</button>'+ '</td>' +
     		'</tr>' +
     		'<tr>' +
-    		    '<p id="detected_errors"> none </p> '+
+    		    '<td> <p id="detected_errors"> none </p> </td>'+
     		'</tr>' +
     	'</table>' +
     '</div>';
