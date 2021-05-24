@@ -3,7 +3,7 @@
 // @name           IITC plugin: Check Banners availability
 // @author         TontonPhil
 // @category       Layer
-// @version        0.0.3.2019.10.20.02
+// @version        0.0.4.2021.05.24.01
 // @namespace      https://github.com/TontonPhil/iitc-plugin-CheckBanners
 // @updateURL      https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.meta.js
 // @downloadURL    https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.user.js
@@ -85,7 +85,7 @@ window.plugin.CheckBanners.search = function (promptAction, debug_info) {
     searchParameters.searchRegExp = RegExp("([0-9]*)[^0-9]*([0-9]*)[^0-9]*"+promptAction+"[^0-9]*([0-9]*)[^0-9]*([0-9]*)","i");
     searchParameters.initialStateDebugInfo=debug_info; // store debug info, in case to share them later to investigate
     searchParameters.filteredMissionList; // list of all the missions on which we load the details
-    searchParameters.moveSpeed = 2500 ; // waiting time between 2 moves (for debug)
+    searchParameters.moveSpeed = 400 ; // waiting time between 2 moves (for debug)
     searchParameters.defaultZoom = map.getZoom(); // hypothesis that the user has more or less put the zoom level to be accurrate
     searchParameters.lastSizeOfMissionList ; // used to store last size of mission list, if it is 25 then it was the top 25 missions and me may need to zoom.
     searchParameters.LostMissionRefPortal; // portal used as a reference to search the current missing mission
@@ -557,11 +557,17 @@ window.plugin.CheckBanners.callBackMissionDetailLoaded = function (searchParamet
             console.log('direction '+ (searchParameters.searchingPrevious ? "previous" : "following"  ));
 
             // set a timeout to avoid to chain requests (to avoid ban...)
-            setTimeout(
+/*            setTimeout(
                 window.plugin.missions.loadMissionsInBounds(window.map.getBounds(),
                                                             window.plugin.CheckBanners.callBackMissionLoaded.bind(
-                                                                window.plugin.missions,searchParameters)),
+                                                                window.plugin.missions,searchParameters)) ,
                 searchParameters.moveSpeed);
+*/
+            setTimeout(
+                window.plugin.missions.loadMissionsInBounds,
+                searchParameters.moveSpeed,
+				window.map.getBounds(),
+                window.plugin.CheckBanners.callBackMissionLoaded.bind(window.plugin.missions,searchParameters) );
             }
         } else {GoAndPerformFinalAnalysis = true;}
 
@@ -1017,7 +1023,8 @@ window.plugin.CheckBanners.questionwindowGo = function () {
     document.getElementById('CheckBanners_DebugJSON').value = debug_JSON;
 
     //we delay the launch of the search in order to let reposition the screen on the proper position
-    setTimeout(window.plugin.CheckBanners.search(chaine,debug_info),100);
+//    setTimeout(window.plugin.CheckBanners.search(chaine,debug_info),100);
+    setTimeout(window.plugin.CheckBanners.search,100,chaine,debug_info);
 }
 
 var setup = function() {
@@ -1066,5 +1073,3 @@ var info = {};
 if (typeof GM_info !== 'undefined' && GM_info && GM_info.script) info.script = { version: GM_info.script.version, name: GM_info.script.name, description: GM_info.script.description };
 script.appendChild(document.createTextNode('('+ wrapper +')('+JSON.stringify(info)+');'));
 (document.body || document.head || document.documentElement).appendChild(script);
-
-

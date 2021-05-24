@@ -3,7 +3,7 @@
 // @name           IITC plugin: Check Banners availability
 // @author         TontonPhil
 // @category       Layer
-// @version        0.0.3.2019.10.20.02
+// @version        0.0.4.2021.05.24.01
 // @namespace      https://github.com/TontonPhil/iitc-plugin-CheckBanners
 // @updateURL      https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.meta.js
 // @downloadURL    https://github.com/TontonPhil/iitc-plugin-CheckBanners/raw/master/CheckBanners.user.js
